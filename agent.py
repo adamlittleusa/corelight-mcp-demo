@@ -52,8 +52,30 @@ async def main(message: cl.Message):
         # Hardcoded query for demo purposes to ensure hits
         tool_args = {"query_string": "proto:http OR proto:dns"}
         
+    elif "long" in user_input or "long-lived" in user_input or "long lived" in user_input or "duration" in user_input or "long connections" in user_input or "c2" in user_input or "command and control" in user_input:
+        narrative = "🤖 *Reasoning: User asked for long-lived connections. Delegating to `find_long_connections` tool via MCP...*"
+        tool_to_call = "find_long_connections"
+        # Allow user to specify seconds like '1 hour' or '3600s' - naive parse
+        tool_args = {}
+        # simple pattern: look for numbers in input
+        import re
+        m = re.search(r"(\d+)\s*(s|sec|secs|seconds)?", user_input)
+        if m:
+            try:
+                tool_args['threshold_seconds'] = int(m.group(1))
+            except Exception:
+                pass
+        else:
+            # check for hours/minutes
+            m2 = re.search(r"(\d+)\s*(h|hr|hours)", user_input)
+            if m2:
+                try:
+                    tool_args['threshold_seconds'] = int(m2.group(1)) * 3600
+                except Exception:
+                    pass
+        
     else:
-        await cl.Message(content="I am an MCP Agent. Try asking: **'Who are the top talkers?'** or **'Search for suspicious activity'**.").send()
+        await cl.Message(content="I am an MCP Agent. Try asking: **'Who are the top talkers?'**, **'Search for suspicious activity'**, or **'Find long connections (1 hour)'**.").send()
         return
 
     # Execute the Tool Call via MCP Protocol
