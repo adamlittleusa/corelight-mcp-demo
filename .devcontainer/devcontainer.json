@@ -4,8 +4,8 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
         "version": "latest",
-        "enableNonRootDocker": "true"
-    }
+        "enableNonRootDocker": "true",
+        "moby": false,
   },
   "forwardPorts": [8000, 9200],
   "postCreateCommand": "pip install -r requirements.txt",
