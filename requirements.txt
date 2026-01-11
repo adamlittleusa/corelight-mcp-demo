@@ -1,0 +1,7 @@
+chainlit
+elasticsearch==8.11.0
+fastmcp
+mcp
+python-dotenv
+openai
+pandas
