@@ -7,43 +7,33 @@ docker-compose up -d
 echo ">>> Waiting for Elasticsearch to initialize (30s)..."
 sleep 30
 
-echo ">>> Downloading PCAP (attempting multiple fallbacks)..."
+echo ">>> Setting up PCAP..."
 mkdir -p pcap
-# Try several known raw URLs until one succeeds
-PCAP_PATH="pcap/demo.pcap"
-urls=(
-    "https://raw.githubusercontent.com/zeek/zeek/master/testing/btest/Traces/http/get.pcap"
-    "https://raw.githubusercontent.com/seladb/PcapPlusPlus/master/TestPcapFiles/http_0.pcap"
-    "https://raw.githubusercontent.com/the-tcpdump-group/tcpdump/master/tests/ping.pcap"
-)
-success=0
-for u in "${urls[@]}"; do
-    echo "Trying $u"
-    if wget -q -O "$PCAP_PATH" "$u"; then
-        echo "Downloaded $u"
-        success=1
-        break
-    else
-        echo "Failed: $u"
+
+# Check if demo PCAP exists in demo_pcap_upload
+if [ -f "demo_pcap_upload/FIRST-2015_Hands-on_Network_Forensics_PCAP.zip" ]; then
+    echo ">>> Extracting demo PCAP from demo_pcap_upload..."
+    cd demo_pcap_upload
+    unzip -o "FIRST-2015_Hands-on_Network_Forensics_PCAP.zip" -d .
+    EXTRACTED_PCAP=$(find . -maxdepth 1 -name "*.pcap" -o -name "*.pcapng" | head -1)
+    if [ -n "$EXTRACTED_PCAP" ]; then
+        cp "$EXTRACTED_PCAP" ../pcap/demo.pcap
+        echo ">>> Using extracted PCAP: $EXTRACTED_PCAP"
     fi
-done
-if [ $success -ne 1 ] || [ ! -s "$PCAP_PATH" ]; then
-    echo "WARNING: Could not download a test PCAP. Falling back to synthetic Zeek logs..."
-    mkdir -p logs
-    cat > logs/conn.log <<'EOF'
-#separator \x09
-#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p proto state
-#types time string addr port addr port string string
-1610000000.0	ABC123	192.168.0.2	54321	93.184.216.34	80	tcp	SF
-EOF
-    cat > logs/http.log <<'EOF'
-#separator \x09
-#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p method host uri user_agent status_code
-#types time string addr port addr port string string string int
-1610000000.0	ABC123	192.168.0.2	54321	93.184.216.34	80	GET	example.com	/	agent	200
-EOF
-    echo "Wrote synthetic logs to logs/"
-    PCAP_PATH=""
+    cd ..
+fi
+
+PCAP_PATH="pcap/demo.pcap"
+
+if [ ! -s "$PCAP_PATH" ]; then
+    echo ">>> PCAP not found in demo_pcap_upload. Attempting download..."
+    # High-fidelity Trickbot infection trace
+    wget -O "$PCAP_PATH" "https://github.com/activecm/zeek-pcap-samples/raw/master/trickbot-infection.pcap"
+    
+    if [ ! -s "$PCAP_PATH" ]; then
+        echo "ERROR: Failed to find or download PCAP. Please ensure network access or place pcap/demo.pcap manually." >&2
+        exit 1
+    fi
 fi
 
 if [ -n "$PCAP_PATH" ]; then
