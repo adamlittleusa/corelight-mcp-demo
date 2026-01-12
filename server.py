@@ -12,33 +12,64 @@ es = Elasticsearch("http://localhost:9200")
 def search_zeek_logs(query_string: str, max_results: int = 10) -> str:
     """
     Search Zeek logs in the SIEM for specific activity. 
-    Useful for finding specific IPs, protocols (DNS, HTTP), or error codes.
+    Useful for finding specific IPs, protocols (DNS, HTTP), or patterns.
+    Use * for wildcard searches.
     """
     try:
         if not es.ping():
             return "Error: Could not connect to Elasticsearch. Is the docker container running?"
 
-        response = es.search(
-            index="zeek-*",
-            body={
-                "size": max_results,
-                "query": {"query_string": {"query": query_string, "analyze_wildcard": True}},
-                "sort": [{"@timestamp": {"order": "desc"}}]
-            }
-        )
+        # If query is just *, return some sample events
+        if query_string.strip() == "*":
+            response = es.search(
+                index="zeek-*",
+                body={
+                    "size": max_results,
+                    "query": {"match_all": {}},
+                    "sort": [{"ts": {"order": "desc"}}]
+                }
+            )
+        else:
+            # Build a more intelligent query that searches multiple fields
+            response = es.search(
+                index="zeek-*",
+                body={
+                    "size": max_results,
+                    "query": {
+                        "multi_match": {
+                            "query": query_string,
+                            "fields": ["id.orig_h", "id.resp_h", "host", "method", "proto", "user", "*"],
+                            "fuzziness": "AUTO"
+                        }
+                    },
+                    "sort": [{"ts": {"order": "desc"}}]
+                }
+            )
+        
         hits = response.get('hits', {}).get('hits', [])
         if not hits:
-            return "No logs found matching that query."
+            return f"No logs found matching '{query_string}'. Try searching for: protocol names (dns, http), IP addresses, hostnames, or use * for all events."
         
         results = []
         for hit in hits:
             src = hit['_source']
-            # Format strictly as evidence string
-            ts = src.get('@timestamp', 'unknown')
+            index_type = hit['_index'].replace('zeek-', '').upper()
+            ts = src.get('ts', 'unknown')
             orig = src.get('id.orig_h', 'unknown')
             resp = src.get('id.resp_h', 'unknown')
-            proto = src.get('proto', 'unknown')
-            results.append(f"[{ts}] {orig} -> {resp} ({proto})")
+            
+            # Format based on log type
+            if 'http' in hit['_index']:
+                method = src.get('method', 'unknown')
+                host = src.get('host', 'unknown')
+                results.append(f"[{index_type}] {orig} -> {host} ({method}) @ {ts}")
+            elif 'ftp' in hit['_index']:
+                user = src.get('user', 'unknown')
+                results.append(f"[{index_type}] {orig} -> {resp} (user: {user}) @ {ts}")
+            else:
+                proto = src.get('proto', 'unknown')
+                results.append(f"[{index_type}] {orig} -> {resp} ({proto}) @ {ts}")
+        
         return "\n".join(results)
     except Exception as e:
         return f"Error querying SIEM: {str(e)}"

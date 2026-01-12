@@ -46,11 +46,48 @@ async def main(message: cl.Message):
         tool_to_call = "get_top_talkers"
         tool_args = {}
         
+    elif "suspicious" in user_input or "anomal" in user_input or "threat" in user_input or "attack" in user_input:
+        # Smart routing for threat hunting - suggest specific tools instead of generic search
+        response_text = """🤖 **Threat Hunting Assistant**
+
+I can help you investigate suspicious activity! I have specialized tools for different types of threats:
+
+1. **🔐 Cleartext Credentials** — Detect FTP/HTTP passwords exposed in network traffic
+   *Try: "Show me cleartext credentials" or "Audit for passwords"*
+
+2. **🔗 Long-Lived Connections** — Find C2 callbacks & persistent connections (>1hr)
+   *Try: "Find long connections" or "Show me connections lasting over 1 hour"*
+
+3. **📊 Top Talkers** — Identify high-volume sources (data exfil, scanning)
+   *Try: "Who are the top talkers?"*
+
+4. **🔍 Log Search** — Search for specific protocols, IPs, or patterns
+   *Try: "Search for DNS queries to suspicious domains"*
+
+**What would you like to investigate?**"""
+        
+        await cl.Message(content=response_text).send()
+        return
+        
     elif "search" in user_input or "investigate" in user_input:
         narrative = "🤖 *Reasoning: User asked for investigation. Delegating to `search_zeek_logs` tool via MCP...*"
         tool_to_call = "search_zeek_logs"
-        # Hardcoded query for demo purposes to ensure hits
-        tool_args = {"query_string": "proto:http OR proto:dns"}
+        # Try to extract search intent from user input
+        import re
+        # Look for specific patterns or domains
+        if "dns" in user_input:
+            tool_args = {"query_string": "event_type:dns OR proto:dns"}
+        elif "http" in user_input or "web" in user_input:
+            tool_args = {"query_string": "event_type:http OR proto:http OR method:*"}
+        elif "ip" in user_input or "address" in user_input:
+            # Try to find IP in input
+            ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', user_input)
+            if ip_match:
+                tool_args = {"query_string": f"id.orig_h:{ip_match.group(1)} OR id.resp_h:{ip_match.group(1)}"}
+            else:
+                tool_args = {"query_string": "*"}
+        else:
+            tool_args = {"query_string": "*"}
         
     elif "long" in user_input or "long-lived" in user_input or "long lived" in user_input or "duration" in user_input or "long connections" in user_input or "c2" in user_input or "command and control" in user_input:
         narrative = "🤖 *Reasoning: User asked for long-lived connections. Delegating to `find_long_connections` tool via MCP...*"
@@ -79,7 +116,7 @@ async def main(message: cl.Message):
         tool_to_call = "audit_cleartext_creds"
         tool_args = {}
     else:
-        await cl.Message(content="I am an MCP Agent. Try asking: **'Who are the top talkers?'**, **'Search for suspicious activity'**, or **'Find long connections (1 hour)'**.").send()
+        await cl.Message(content="I am an MCP Agent connected to your Corelight SIEM. Try asking:\n\n• **'Find suspicious activity'** — I'll suggest threat hunting tools\n• **'Who are the top talkers?'** — Volume analysis\n• **'Show cleartext credentials'** — Detect exposed passwords\n• **'Find long connections (1 hour)'** — Detect C2 callbacks\n• **'Search for HTTP activity'** — Log search").send()
         return
 
     # Execute the Tool Call via MCP Protocol
