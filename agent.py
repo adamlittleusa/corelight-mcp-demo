@@ -74,6 +74,10 @@ async def main(message: cl.Message):
                 except Exception:
                     pass
         
+    elif "credential" in user_input or "password" in user_input or "cleartext" in user_input or "ftp" in user_input or "telnet" in user_input or "basic auth" in user_input:
+        narrative = "🤖 *Reasoning: User asked for credentials. Delegating to `audit_cleartext_creds` tool via MCP...*"
+        tool_to_call = "audit_cleartext_creds"
+        tool_args = {}
     else:
         await cl.Message(content="I am an MCP Agent. Try asking: **'Who are the top talkers?'**, **'Search for suspicious activity'**, or **'Find long connections (1 hour)'**.").send()
         return

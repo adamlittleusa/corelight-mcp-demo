@@ -154,6 +154,40 @@ def find_long_connections(threshold_seconds: int = 3600) -> str:
     except Exception as e:
         return f"Error during fallback duration analysis: {e}"
 
+
+@mcp.tool()
+def audit_cleartext_creds() -> str:
+    """Searches for cleartext credentials extracted by Zeek (e.g., from FTP or HTTP Basic Auth)."""
+    try:
+        if not es.ping():
+            return "Error: Could not connect to Elasticsearch."
+        
+        # Search across FTP and HTTP logs for user field
+        response = es.search(
+            index="zeek-ftp,zeek-http",
+            body={
+                "query": {"exists": {"field": "user"}},
+                "size": 100
+            }
+        )
+        hits = response.get('hits', {}).get('hits', [])
+        if not hits:
+            return "No cleartext credentials identified in logs."
+        
+        results = []
+        for h in hits:
+            src = h['_source']
+            service = h['_index'].replace('zeek-', '').upper()
+            user = src.get('user', 'unknown')
+            password = src.get('password', 'N/A')
+            server = src.get('id.resp_h', 'unknown')
+            port = src.get('id.resp_p', 'unknown')
+            results.append(f"[{service}] User: {user} | Password: {password} | Server: {server}:{port}")
+        
+        return "\n".join(results)
+    except Exception as e:
+        return f"Error searching for credentials: {str(e)}"
+
 if __name__ == "__main__":
     # Runs the MCP server on stdio (standard input/output)
     mcp.run()

@@ -47,10 +47,20 @@ if [ ! -s "$PCAP_PATH" ]; then
 EOF
         cat > logs/http.log <<'EOF'
 #separator \x09
-#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p method host uri user_agent request_body_len response_body_len status_code
-#types time string addr port addr port string string string string count count count
-1609459200.0	ABC123	192.168.1.10	54321	10.0.0.100	443	GET	example.com	/api/endpoint	Mozilla	0	2048	200
-1609459205.0	XYZ789	192.168.1.20	54322	10.0.0.101	80	POST	www.example.org	/form	Chrome	512	256	404
+#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p method host uri user_agent request_body_len response_body_len status_code user password
+#types time string addr port addr port string string string string count count count string string
+1609459200.0	ABC123	192.168.1.10	54321	10.0.0.100	443	GET	example.com	/api/endpoint	Mozilla	0	2048	200	-	-
+1609459205.0	XYZ789	192.168.1.20	54322	10.0.0.101	80	POST	www.example.org	/form	Chrome	512	256	404	admin	SuperSecret123
+1609459235.0	STU901	192.168.1.25	54328	10.0.0.107	80	GET	internal.corp	/admin	Firefox	0	1024	401	webadmin	P@ssw0rd!2024
+EOF
+        cat > logs/ftp.log <<'EOF'
+#separator \x09
+#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p user password command reply_code reply_msg
+#types time string addr port addr port string string string count string
+1609459240.0	FTP001	192.168.1.15	54329	10.0.0.108	21	ftpuser	F1leS3rv3r	USER	331	Please specify the password
+1609459241.0	FTP001	192.168.1.15	54329	10.0.0.108	21	ftpuser	F1leS3rv3r	PASS	230	Login successful
+1609459250.0	FTP002	192.168.1.35	54330	10.0.0.109	21	backup	B@ckup2024!	USER	331	Please specify the password
+1609459251.0	FTP002	192.168.1.35	54330	10.0.0.109	21	backup	B@ckup2024!	PASS	230	Login successful
 EOF
         echo "Wrote synthetic logs to logs/"
         PCAP_PATH=""
