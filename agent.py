@@ -115,6 +115,11 @@ I can help you investigate suspicious activity! I have specialized tools for dif
         narrative = "🤖 *Reasoning: User asked for credentials. Delegating to `audit_cleartext_creds` tool via MCP...*"
         tool_to_call = "audit_cleartext_creds"
         tool_args = {}
+    
+    elif "dns" in user_input or "domain" in user_input or "beacon" in user_input or "dga" in user_input:
+        narrative = "🤖 *Reasoning: User asked for DNS beaconing summary. Delegating to `get_dns_summary` tool via MCP...*"
+        tool_to_call = "get_dns_summary"
+        tool_args = {}
     else:
         await cl.Message(content="I am an MCP Agent connected to your Corelight SIEM. Try asking:\n\n• **'Find suspicious activity'** — I'll suggest threat hunting tools\n• **'Who are the top talkers?'** — Volume analysis\n• **'Show cleartext credentials'** — Detect exposed passwords\n• **'Find long connections (1 hour)'** — Detect C2 callbacks\n• **'Search for HTTP activity'** — Log search").send()
         return

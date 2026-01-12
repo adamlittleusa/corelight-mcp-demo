@@ -62,6 +62,19 @@ EOF
 1609459250.0	FTP002	192.168.1.35	54330	10.0.0.109	21	backup	B@ckup2024!	USER	331	Please specify the password
 1609459251.0	FTP002	192.168.1.35	54330	10.0.0.109	21	backup	B@ckup2024!	PASS	230	Login successful
 EOF
+    cat > logs/dns.log <<'EOF'
+#separator \x09
+#fields ts uid id.orig_h id.orig_p id.resp_h id.resp_p query qtype qtype_name answers
+#types time string addr port addr port string int string string
+1609459260.0	DNS001	192.168.1.10	55321	8.8.8.8	53	xj3k9q9z7b0.com	1	A	-
+1609459261.0	DNS001	192.168.1.10	55321	8.8.8.8	53	xj3k9q9z7b0.com	1	A	-
+1609459262.0	DNS001	192.168.1.10	55321	8.8.8.8	53	xj3k9q9z7b0.com	1	A	-
+1609459263.0	DNS002	192.168.1.20	55322	1.1.1.1	53	b2k9sjd9q8lq.info	1	A	-
+1609459264.0	DNS002	192.168.1.20	55322	1.1.1.1	53	b2k9sjd9q8lq.info	1	A	-
+1609459265.0	DNS003	192.168.1.30	55323	9.9.9.9	53	update.apple.com	1	A	17.253.144.10
+1609459266.0	DNS004	192.168.1.40	55324	8.8.4.4	53	abcd-efgh-1234.biz	1	A	-
+1609459267.0	DNS004	192.168.1.40	55324	8.8.4.4	53	abcd-efgh-1234.biz	1	A	-
+EOF
         echo "Wrote synthetic logs to logs/"
         PCAP_PATH=""
     fi

@@ -219,6 +219,31 @@ def audit_cleartext_creds() -> str:
     except Exception as e:
         return f"Error searching for credentials: {str(e)}"
 
+@mcp.tool()
+def get_dns_summary() -> str:
+    """Returns the most frequently queried DNS domains (helps spot beaconing/DGA)."""
+    try:
+        if not es.ping():
+            return "Error: Could not connect to Elasticsearch."
+        # Aggregate on the 'query' field; our mappings store it as 'keyword'
+        response = es.search(
+            index="zeek-dns",
+            body={
+                "size": 0,
+                "aggs": {
+                    "top_domains": {
+                        "terms": {"field": "query", "size": 10}
+                    }
+                }
+            }
+        )
+        buckets = response.get('aggregations', {}).get('top_domains', {}).get('buckets', [])
+        if not buckets:
+            return "No DNS query data available."
+        return "\n".join([f"Domain: {b['key']} ({b['doc_count']} queries)" for b in buckets])
+    except Exception as e:
+        return f"Error summarizing DNS: {str(e)}"
+
 if __name__ == "__main__":
     # Runs the MCP server on stdio (standard input/output)
     mcp.run()
