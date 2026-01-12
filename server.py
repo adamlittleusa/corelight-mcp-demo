@@ -54,13 +54,105 @@ def get_top_talkers(top_n: int = 5) -> str:
             index="zeek-*",
             body={
                 "size": 0,
-                "aggs": {"top_sources": {"terms": {"field": "id.orig_h.keyword", "size": top_n}}}
+                    "aggs": {"top_sources": {"terms": {"field": "id.orig_h", "size": top_n}}}
             }
         )
         buckets = response['aggregations']['top_sources']['buckets']
         return "\n".join([f"IP: {b['key']} - Flow Count: {b['doc_count']}" for b in buckets])
     except Exception as e:
         return f"Error aggregating SIEM data: {str(e)}"
+
+
+@mcp.tool()
+def find_long_connections(threshold_seconds: int = 3600) -> str:
+    """Finds network connections that stayed open longer than the threshold (default 1hr)."""
+    try:
+        # Ensure ES is reachable
+        if not es.ping():
+            return "Error: Could not connect to Elasticsearch."
+        # Check whether the 'duration' field exists in the index mapping
+        try:
+            mapping = es.indices.get_mapping(index='zeek-conn')
+            # drill down to properties if present
+            props = None
+            for idx_name, idx_map in mapping.items():
+                props = idx_map.get('mappings', {}).get('properties', {})
+                if props is not None:
+                    break
+            if not props or 'duration' not in props:
+                return "No 'duration' field found in 'zeek-conn' mapping; cannot search for long connections."
+        except Exception:
+            # If mapping query fails, continue but guard the search with try/except
+            props = None
+
+        try:
+            response = es.search(
+                index="zeek-conn",
+                body={
+                    "query": {"range": {"duration": {"gt": threshold_seconds}}},
+                    "sort": [{"duration": {"order": "desc"}}],
+                    "size": 100
+                }
+            )
+
+            hits = response.get('hits', {}).get('hits', [])
+            if not hits:
+                return "No long-lived connections found."
+
+            results = []
+            for h in hits:
+                src = h.get('_source', {})
+                dur = src.get('duration', 'unknown')
+                orig = src.get('id.orig_h', 'unknown')
+                resp = src.get('id.resp_h', 'unknown')
+                svc = src.get('service', src.get('proto', 'unknown'))
+                results.append(f"Duration: {dur}s | {orig} -> {resp} (Service: {svc})")
+
+            return "\n".join(results)
+        except Exception as e:
+            return f"Error searching for long connections: {e}"
+    except Exception as e:
+        return f"Error searching for long connections: {e}"
+
+    # Fallback: if 'duration' field is not available, fetch conn docs and compute max(ts)-min(ts) per uid
+    try:
+        # fetch all conn docs (for demo datasets this is OK)
+        resp = es.search(index='zeek-conn', body={"size": 10000, "query": {"match_all": {}}})
+        hits = resp.get('hits', {}).get('hits', [])
+        if not hits:
+            return "No connection documents available to analyze."
+
+        # group by uid (or by src->dst if uid missing)
+        groups = {}
+        for h in hits:
+            src = h.get('_source', {})
+            uid = src.get('uid') or f"{src.get('id.orig_h','unknown')}-{src.get('id.resp_h','unknown')}"
+            try:
+                ts = float(src.get('ts', 0))
+            except Exception:
+                ts = 0.0
+            entry = groups.setdefault(uid, {"min": ts, "max": ts, "orig": src.get('id.orig_h','unknown'), "resp": src.get('id.resp_h','unknown'), "service": src.get('service', src.get('proto','unknown'))})
+            if ts < entry['min']:
+                entry['min'] = ts
+            if ts > entry['max']:
+                entry['max'] = ts
+
+        # compute durations and filter by threshold
+        results = []
+        for uid, v in groups.items():
+            duration = v['max'] - v['min']
+            if duration > threshold_seconds:
+                results.append((duration, v['orig'], v['resp'], v['service']))
+
+        if not results:
+            return "No long-lived connections found (fallback analysis)."
+
+        # sort by duration desc and format
+        results.sort(reverse=True, key=lambda x: x[0])
+        out = [f"Duration: {int(d)}s | {o} -> {r} (Service: {s})" for d,o,r,s in results[:100]]
+        return "\n".join(out)
+    except Exception as e:
+        return f"Error during fallback duration analysis: {e}"
 
 if __name__ == "__main__":
     # Runs the MCP server on stdio (standard input/output)
