@@ -1,0 +1,89 @@
+╔════════════════════════════════════════════════════════════════╗
+║         SMART PCAP DEMO - OPTIMIZED SETUP                      ║
+║  Metadata Everywhere, Full Packets Only When Needed            ║
+╚════════════════════════════════════════════════════════════════╝
+
+>>> Step 1: Checking Elasticsearch...
+✓ Elasticsearch is running
+
+>>> Step 2: Cleaning up old data...
+✓ Old indices removed
+✓ Old logs cleared
+
+>>> Step 3: Selecting 5 smallest PCAP files...
+Selected files:
+  snort.log.1425572414 - 10MB
+  snort.log.1425686433 - 14MB
+  snort.log.1425772833 - 14MB
+  snort.log.1428535715 - 17MB
+  snort.log.1428883207 - 17MB
+✓ Total size: 74MB
+
+>>> Step 4: Preparing PCAP for analysis...
+✓ Base PCAP created: pcap/demo.pcap
+
+>>> Step 5: Running Zeek analysis with Smart PCAP triggers...
+✓ Zeek generated 10 log files
+
+Log file statistics:
+  conn.log: 933 records
+  dhcp.log: 1 records
+  dns.log: 229 records
+  files.log: 100 records
+  http.log: 84 records
+  ntp.log: 165 records
+  packet_filter.log: 1 records
+  ssl.log: 38 records
+  weird.log: 5 records
+  x509.log: 3 records
+
+>>> Step 6: Ingesting priority logs into Elasticsearch...
+Found 10 log files
+Skipping files (not in priority list)
+Skipping ntp (not in priority list)
+Skipping dhcp (not in priority list)
+Skipping x509 (not in priority list)
+Skipping ssl (not in priority list)
+Skipping packet_filter (not in priority list)
+
+Creating indices for 4 log types...
+  ⚠ Index zeek-weird already exists
+  ✓ Created zeek-dns
+  ✓ Created zeek-conn
+  ✓ Created zeek-http
+
+Ingesting logs (using smart batching)...
+  ✓ zeek-weird indexed
+  ✓ zeek-dns indexed
+  ✓ zeek-conn indexed
+  ✓ zeek-http indexed
+
+✓ Total documents indexed: 1251
+
+============================================================
+SMART PCAP SETUP COMPLETE
+============================================================
+
+Indexed logs:
+  zeek-weird: 5 documents
+  zeek-dns: 229 documents
+  zeek-conn: 933 documents
+  zeek-http: 84 documents
+
+ℹ  Could not query for Smart PCAP triggers
+
+✓ Full PCAP available at: pcap/demo.pcap
+✓ Ready for Smart PCAP queries via MCP agent
+
+╔════════════════════════════════════════════════════════════════╗
+║                    SETUP COMPLETE                              ║
+╚════════════════════════════════════════════════════════════════╝
+
+Next steps:
+  1. Start the agent: chainlit run agent.py
+  2. Try queries like:
+     - 'Show me top talkers'
+     - 'Find long connections'
+     - 'Search for suspicious DNS'
+     - 'Extract packets for connection <UID>'
+

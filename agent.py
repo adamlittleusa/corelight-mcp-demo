@@ -2,6 +2,21 @@ import chainlit as cl
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 import os
+import json
+import asyncio
+
+# Optional LLM fallback for routing/answers using Google Gemini
+try:
+    import google.generativeai as genai
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
+        model_name = os.environ.get("GEMINI_MODEL", "models/gemini-2.5-flash")
+        gemini_model = genai.GenerativeModel(model_name)
+    else:
+        gemini_model = None
+except ImportError:  # pragma: no cover
+    gemini_model = None
 
 # Configuration to launch the server script as a subprocess
 SERVER_PARAMS = StdioServerParameters(
@@ -9,6 +24,68 @@ SERVER_PARAMS = StdioServerParameters(
     args=["server.py"], 
     env=os.environ.copy()
 )
+
+
+async def llm_route(user_text: str):
+    """Use an LLM to decide a tool or answer when no keyword matched."""
+    # Check API Key first
+    if not os.environ.get("GEMINI_API_KEY"):
+        return {
+            "mode": "answer", 
+            "text": "✨ *Gemini is currently unavailable (API Key missing), but I can still help!* \n\n"
+                   "I'm optimized for these Corelight tools:\n"
+                   "• **top talkers** (Volume analysis)\n"
+                   "• **search** (General log hunting)\n"
+                   "• **dns** (Beaconing detection)\n"
+                   "• **long connections** (C2 detection)\n"
+                   "• **credentials** (Cleartext password audit)"
+        }
+    
+    try:
+        # Use the full model path with the latest stable model
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
+        
+        system_prompt = (
+            "You are a Senior Corelight SOC Analyst. The user asked: '{user_text}'. "
+            "Choose ONE: (a) call_tool: {\"tool\": <name>, \"args\": {...}} from "
+            "[search_zeek_logs, get_top_talkers, find_long_connections, audit_cleartext_creds, get_dns_summary] "
+            "or (b) answer: <short helpful text>. Keep responses concise."
+        )
+        
+        prompt = f"{system_prompt}\n\nUser request: {user_text}"
+        
+        # Generate content with error handling
+        response = await asyncio.to_thread(
+            model.generate_content,
+            prompt
+        )
+        
+        content = response.text if response.text else ""
+        
+        # Try to parse JSON if present
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        
+        # Fallback: treat as answer text
+        return {"mode": "answer", "text": content or "I can help search logs, find long connections, DNS beaconing, credentials, or top talkers."}
+        
+    except Exception as e:
+        # If Gemini fails, don't crash—just give the user a 'manual' hint
+        print(f"DEBUG: Gemini Error: {e}")
+        return {
+            "mode": "answer",
+            "text": "✨ *Gemini is currently unavailable, but I can still help!* \n\n"
+                   "I'm optimized for these Corelight tools:\n"
+                   "• **top talkers** (Volume analysis)\n"
+                   "• **search** (General log hunting)\n"
+                   "• **dns** (Beaconing detection)\n"
+                   "• **long connections** (C2 detection)\n"
+                   "• **credentials** (Cleartext password audit)"
+        }
 
 @cl.on_chat_start
 async def start():
@@ -40,6 +117,39 @@ async def main(message: cl.Message):
     tool_to_call = None
     tool_args = {}
     narrative = ""
+
+    # Menu command - show all available tools
+    if "menu" in user_input or "help" in user_input or "tools" in user_input:
+        try:
+            async with stdio_client(SERVER_PARAMS) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools = await session.list_tools()
+                    
+                    menu_text = "📋 **Available MCP Tools**\n\n"
+                    menu_text += "I have access to the following tools:\n\n"
+                    
+                    for tool in tools.tools:
+                        menu_text += f"**`{tool.name}`**\n"
+                        if tool.description:
+                            menu_text += f"  └─ {tool.description}\n"
+                        menu_text += "\n"
+                    
+                    menu_text += "\n**Quick Commands:**\n"
+                    menu_text += "• `top talkers` - Volume analysis\n"
+                    menu_text += "• `weird events` - Protocol anomalies\n"
+                    menu_text += "• `long connections` - C2 detection\n"
+                    menu_text += "• `cleartext credentials` - Password exposure\n"
+                    menu_text += "• `dns summary` - DNS beaconing\n"
+                    menu_text += "• `smart pcap triggers` - Suspicious events\n"
+                    menu_text += "• `search <query>` - Log search\n"
+                    menu_text += "• `menu` - Show this menu\n"
+                    
+                    await cl.Message(content=menu_text).send()
+                    return
+        except Exception as e:
+            await cl.Message(content=f"❌ Could not retrieve tool menu: {e}").send()
+            return
 
     if "top talker" in user_input or "volume" in user_input:
         narrative = "🤖 *Reasoning: User asked for volume metrics. Delegating to `get_top_talkers` tool via MCP...*"
@@ -120,9 +230,55 @@ I can help you investigate suspicious activity! I have specialized tools for dif
         narrative = "🤖 *Reasoning: User asked for DNS beaconing summary. Delegating to `get_dns_summary` tool via MCP...*"
         tool_to_call = "get_dns_summary"
         tool_args = {}
+    
+    elif "smart pcap" in user_input or "pcap trigger" in user_input or "alert" in user_input or "trigger" in user_input:
+        narrative = "🤖 *Reasoning: User asked for Smart PCAP triggers. Delegating to `find_smart_pcap_triggers` tool via MCP...*"
+        tool_to_call = "find_smart_pcap_triggers"
+        tool_args = {}
+    
+    elif "extract" in user_input or "packet" in user_input:
+        # Look for UID in the input
+        import re
+        uid_match = re.search(r'[A-Za-z0-9]{14,18}', user_input)
+        if uid_match:
+            uid = uid_match.group(0)
+            narrative = f"🤖 *Reasoning: User wants to extract packets for UID {uid}. Delegating to `extract_packets` tool via MCP...*"
+            tool_to_call = "extract_packets"
+            tool_args = {"uid": uid}
+        else:
+            await cl.Message(content="To extract packets, please provide a connection UID.\n\nExample: 'extract packets for C1a2b3c4d5e6f7'").send()
+            return
+    
+    elif "connection detail" in user_input or "uid" in user_input.lower():
+        # Look for UID in the input
+        import re
+        uid_match = re.search(r'[A-Za-z0-9]{14,18}', user_input)
+        if uid_match:
+            uid = uid_match.group(0)
+            narrative = f"🤖 *Reasoning: User wants connection details for UID {uid}. Delegating to `get_connection_details` tool via MCP...*"
+            tool_to_call = "get_connection_details"
+            tool_args = {"uid": uid}
+        else:
+            await cl.Message(content="To get connection details, please provide a connection UID.\n\nExample: 'show details for C1a2b3c4d5e6f7'").send()
+            return
+    
+    elif "weird" in user_input or "anomal" in user_input or "protocol" in user_input:
+        narrative = "🤖 *Reasoning: User asked for weird events. Delegating to `get_weird_events` tool via MCP...*"
+        tool_to_call = "get_weird_events"
+        tool_args = {}
+    
     else:
-        await cl.Message(content="I am an MCP Agent connected to your Corelight SIEM. Try asking:\n\n• **'Find suspicious activity'** — I'll suggest threat hunting tools\n• **'Who are the top talkers?'** — Volume analysis\n• **'Show cleartext credentials'** — Detect exposed passwords\n• **'Find long connections (1 hour)'** — Detect C2 callbacks\n• **'Search for HTTP activity'** — Log search").send()
-        return
+        # LLM fallback: decide on a tool or give an answer
+        await cl.Message(content="🤖 *No direct keyword matched; consulting LLM for best action...*").send()
+        decision = await llm_route(message.content)
+        if decision.get("mode") == "call_tool" and decision.get("tool"):
+            tool_to_call = decision.get("tool")
+            tool_args = decision.get("args", {})
+            narrative = f"🤖 *LLM chose tool `{tool_to_call}` for your request.*"
+        else:
+            answer = decision.get("text", "I can help with top talkers, long connections, DNS beaconing, credentials, or log search.")
+            await cl.Message(content=answer).send()
+            return
 
     # Execute the Tool Call via MCP Protocol
     await cl.Message(content=narrative).send()
