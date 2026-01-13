@@ -204,13 +204,15 @@ def audit_cleartext_creds() -> str:
         if not es.ping():
             return "Error: Could not connect to Elasticsearch."
         
-        # Search across FTP and HTTP logs for user field
+        # Search for credentials across available indices
+        # Use ignore_unavailable to handle missing indices gracefully
         response = es.search(
             index="zeek-ftp,zeek-http",
             body={
                 "query": {"exists": {"field": "user"}},
                 "size": 100
-            }
+            },
+            ignore_unavailable=True
         )
         hits = response.get('hits', {}).get('hits', [])
         if not hits:
