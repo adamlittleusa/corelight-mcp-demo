@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Chainlit
+.chainlit/
+chainlit.log
+.files/
+
+# Data directories (too large for git)
+demo_pcap_upload/
+pcap/*.pcap
+logs/*.log
+setup_output.log
+
+# Elasticsearch data
+.elasticsearch/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+*.pcap
+extracted/
