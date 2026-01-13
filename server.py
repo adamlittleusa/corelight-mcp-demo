@@ -194,7 +194,12 @@ def find_long_connections(threshold_seconds: int = 3600) -> str:
 
 @mcp.tool()
 def audit_cleartext_creds() -> str:
-    """Searches for cleartext credentials extracted by Zeek (e.g., from FTP or HTTP Basic Auth)."""
+    """
+    Searches for cleartext credentials and passwords extracted by Zeek from network traffic.
+    Finds exposed FTP credentials, HTTP Basic Auth usernames/passwords, and other cleartext authentication.
+    Returns user accounts, passwords, and the servers they were sent to.
+    Use this when asked about: credentials, passwords, cleartext, FTP, exposed authentication, insecure logins.
+    """
     try:
         if not es.ping():
             return "Error: Could not connect to Elasticsearch."
@@ -212,6 +217,7 @@ def audit_cleartext_creds() -> str:
             return "No cleartext credentials identified in logs."
         
         results = []
+        results.append(f"Found {len(hits)} cleartext credential exposures:\n")
         for h in hits:
             src = h['_source']
             service = h['_index'].replace('zeek-', '').upper()
@@ -219,7 +225,10 @@ def audit_cleartext_creds() -> str:
             password = src.get('password', 'N/A')
             server = src.get('id.resp_h', 'unknown')
             port = src.get('id.resp_p', 'unknown')
-            results.append(f"[{service}] User: {user} | Password: {password} | Server: {server}:{port}")
+            client = src.get('id.orig_h', 'unknown')
+            results.append(f"  [{service}] {client} → {server}:{port}")
+            results.append(f"           User: {user}")
+            results.append(f"           Password: {password}\n")
         
         return "\n".join(results)
     except Exception as e:
