@@ -101,54 +101,88 @@ echo "✓ Old indices removed"
 rm -rf ${LOG_DIR}/*.log
 echo "✓ Old logs cleared"
 
-# Step 3: Select smallest PCAP files
+# Step 3: Prepare PCAP file for analysis
 echo ""
-echo ">>> Step 3: Selecting ${MAX_PCAPS} smallest PCAP files..."
+echo ">>> Step 3: Preparing PCAP for analysis..."
 
-# Find and sort PCAP files by size
+# Ensure target directory exists
 mkdir -p "$TARGET_DIR"
 
-# Get smallest files
-SELECTED_PCAPS=$(find "$PCAP_DIR" -type f -name "snort.log.*" -printf "%s %p\n" | sort -n | head -${MAX_PCAPS} | awk '{print $2}')
+# Check if demo.pcap already exists
+if [ -f "$TARGET_DIR/demo.pcap" ] && [ -s "$TARGET_DIR/demo.pcap" ]; then
+    PCAP_SIZE=$(stat -c%s "$TARGET_DIR/demo.pcap" 2>/dev/null || stat -f%z "$TARGET_DIR/demo.pcap" 2>/dev/null)
+    PCAP_SIZE_MB=$((PCAP_SIZE / 1024 / 1024))
+    echo "✓ Using existing PCAP: $TARGET_DIR/demo.pcap (${PCAP_SIZE_MB}MB)"
+else
+    # Try to find PCAP files in demo_pcap_upload directory
+    if [ -d "$PCAP_DIR" ]; then
+        SELECTED_PCAPS=$(find "$PCAP_DIR" -type f \( -name "*.pcap" -o -name "*.pcapng" -o -name "snort.log.*" \) -printf "%s %p\n" 2>/dev/null | sort -n | head -${MAX_PCAPS} | awk '{print $2}')
+        
+        if [ -n "$SELECTED_PCAPS" ]; then
+            echo "Found PCAP files in $PCAP_DIR:"
+            TOTAL_SIZE=0
+            for pcap in $SELECTED_PCAPS; do
+                SIZE=$(stat -c%s "$pcap" 2>/dev/null || stat -f%z "$pcap" 2>/dev/null)
+                SIZE_MB=$((SIZE / 1024 / 1024))
+                TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
+                echo "  $(basename $pcap) - ${SIZE_MB}MB"
+            done
+            
+            TOTAL_SIZE_MB=$((TOTAL_SIZE / 1024 / 1024))
+            echo "✓ Total size: ${TOTAL_SIZE_MB}MB"
+            
+            # Copy first file as base
+            FIRST_PCAP=$(echo "$SELECTED_PCAPS" | head -1)
+            cp "$FIRST_PCAP" "$TARGET_DIR/demo.pcap"
+            echo "✓ PCAP created from: $(basename $FIRST_PCAP)"
+        fi
+    fi
+    
+    # If still no PCAP, try to download sample
+    if [ ! -f "$TARGET_DIR/demo.pcap" ] || [ ! -s "$TARGET_DIR/demo.pcap" ]; then
+        echo "No PCAP found in $PCAP_DIR, downloading sample..."
+        if curl -L -o "$TARGET_DIR/demo.pcap" "https://github.com/activecm/zeek-pcap-samples/raw/master/trickbot-infection.pcap" 2>/dev/null; then
+            PCAP_SIZE=$(stat -c%s "$TARGET_DIR/demo.pcap" 2>/dev/null || stat -f%z "$TARGET_DIR/demo.pcap" 2>/dev/null)
+            PCAP_SIZE_MB=$((PCAP_SIZE / 1024 / 1024))
+            echo "✓ Downloaded sample PCAP (${PCAP_SIZE_MB}MB)"
+        else
+            echo "⚠️  WARNING: Could not download sample PCAP"
+            echo "   Generating synthetic PCAP..."
+            # Generate a minimal PCAP using Python/scapy
+            python3 generate_demo_pcap.py "$TARGET_DIR/demo.pcap" || touch "$TARGET_DIR/demo.pcap"
+        fi
+    fi
+fi
 
-echo "Selected files:"
-TOTAL_SIZE=0
-for pcap in $SELECTED_PCAPS; do
-    SIZE=$(stat -f%z "$pcap" 2>/dev/null || stat -c%s "$pcap")
-    SIZE_MB=$((SIZE / 1024 / 1024))
-    TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
-    echo "  $(basename $pcap) - ${SIZE_MB}MB"
-done
-
-TOTAL_SIZE_MB=$((TOTAL_SIZE / 1024 / 1024))
-echo "✓ Total size: ${TOTAL_SIZE_MB}MB"
-
-# Step 4: Merge PCAPs
+# Step 4: Verify PCAP is ready
 echo ""
-echo ">>> Step 4: Preparing PCAP for analysis..."
-
-# Copy first file as base
-FIRST_PCAP=$(echo "$SELECTED_PCAPS" | head -1)
-cp "$FIRST_PCAP" "$TARGET_DIR/demo.pcap"
-echo "✓ Base PCAP created: $TARGET_DIR/demo.pcap"
-
-# Note: For simplicity, we're using one PCAP. To merge multiple:
-# mergecap -w demo.pcap file1 file2 file3...
+echo ">>> Step 4: Verifying PCAP..."
+if [ -f "$TARGET_DIR/demo.pcap" ] && [ -s "$TARGET_DIR/demo.pcap" ]; then
+    echo "✓ PCAP ready: $TARGET_DIR/demo.pcap"
+else
+    echo "⚠️  No valid PCAP available - will use synthetic data only"
+fi
 
 # Step 5: Run Zeek with Smart PCAP triggers
 echo ""
 echo ">>> Step 5: Running Zeek analysis with Smart PCAP triggers..."
 
-docker run --rm \
-    -v "$(pwd)/$TARGET_DIR:/pcap" \
-    -v "$(pwd)/$LOG_DIR:/logs" \
-    -v "$(pwd)/zeek_scripts:/scripts" \
-    zeek/zeek:latest \
-    bash -c "cd /logs && zeek -C -r /pcap/demo.pcap /scripts/smart_pcap_trigger.zeek"
-
-# Check what was generated
-LOG_FILES=$(ls -1 ${LOG_DIR}/*.log 2>/dev/null | wc -l)
-echo "✓ Zeek generated ${LOG_FILES} log files"
+# Only run Zeek if we have a valid PCAP
+if [ -f "$TARGET_DIR/demo.pcap" ] && [ -s "$TARGET_DIR/demo.pcap" ]; then
+    docker run --rm \
+        -v "$(pwd)/$TARGET_DIR:/pcap" \
+        -v "$(pwd)/$LOG_DIR:/logs" \
+        -v "$(pwd)/zeek_scripts:/scripts" \
+        zeek/zeek:latest \
+        bash -c "cd /logs && zeek -C -r /pcap/demo.pcap /scripts/smart_pcap_trigger.zeek"
+    
+    # Check what was generated
+    LOG_FILES=$(ls -1 ${LOG_DIR}/*.log 2>/dev/null | wc -l)
+    echo "✓ Zeek generated ${LOG_FILES} log files"
+else
+    echo "⚠️  Skipping Zeek analysis (no valid PCAP)"
+    echo "   Will rely on synthetic data injection"
+fi
 
 # Show log statistics
 echo ""
